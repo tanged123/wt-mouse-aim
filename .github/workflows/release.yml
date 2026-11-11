@@ -1,6 +1,6 @@
 # Build the plugin DLL and publish it as a GitHub Release.
 #
-# Runs when a tag like v0.69.0 is pushed (or manually from the Actions tab once this file is on
+# Runs when a tag like v0.69.0 or a branch named release/... is pushed (or manually from the Actions tab once this file is on
 # the default branch). The tag must match PluginVersion in WTMouseAimPlugin.cs.
 #
 # ONE-TIME SETUP — the build compiles against the game's own assemblies, which are not
@@ -23,6 +23,9 @@ name: Release
 on:
   push:
     tags: ['v*']
+    # Pushing a branch named release/<anything> also builds and publishes vX.Y.Z from that commit
+    # (the release step creates the tag). Handy when a tag can't be pushed directly.
+    branches: ['release/**']
   workflow_dispatch:
 
 permissions:
