@@ -57,7 +57,11 @@ Machine-specific paths are written as placeholders:
     gentle coordinated turn (gate `_settleOK` from the aim-direction angular rate; new recorder column
     `settleOn`). v0.61 Track A (shared) gated the eAlign anti-relay slew to the dead-astern wrap region
     and decoupled the azTR presence gate from the predFloor. `Legacy`/`BankToTurn` removed in v0.60;
-    `BankToTurnVmin` renamed `BankSpeedFloor` (shared bank airspeed floor). Also holds
+    `BankToTurnVmin` renamed `BankSpeedFloor` (shared bank airspeed floor). **v0.69 WT-feel pass**
+    (`Cfg` section `Feel`): `omegaStick` (the probed FBW stick→pitch-rate gain, pre-AoA-cap) normalizes
+    a constant-bandwidth pitch floor (`NoseResponse`) and a marker-pitch-rate feedforward
+    (`AimFeedForward`); `_aimActive` (marker-motion envelope) boosts the bank-target slew while the
+    pilot is steering (`ActiveBankSlewBoost`). Each knob has an exact-v0.68 "off" value. Also holds
     `PilotPlayerStatePatch` (Harmony seam on `PilotPlayerState.PlayerAxisControls`).
   - `Recording.cs` — `ManeuverRecorder` + `AnomalyLog` (the log/recorder sinks ChaseController emits to).
   - `CameraPatches.cs` — `CockpitCameraPatch` + `CameraOrbitPatch` + `CameraSwitchStatePatch`.

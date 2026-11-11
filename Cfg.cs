@@ -86,6 +86,12 @@ namespace NuclearOptionMouseAim
         // ChaseController FBW probe now reads the per-airframe params and normalizes pitch exactly.
         public static ConfigEntry<float> BankSlewRate;        // deg/s: rate limit on EvolvedLegacy's bank target (v0.54 anti-relay)
 
+        // --- WT-feel pass (v0.69): responsiveness shaping keyed to the probed FBW stick gain and to the
+        // pilot's own marker motion. Each one returns to exact v0.68 behaviour at its "off" value.
+        public static ConfigEntry<float> NoseResponse;        // 1/s: rate-normalized pitch bandwidth floor (0 = off)
+        public static ConfigEntry<float> AimFeedForward;      // 0..1.5: fraction of the marker's pitch rate fed forward (0 = off)
+        public static ConfigEntry<float> ActiveBankSlewBoost; // x: bank-target slew multiplier while the marker is being moved (1 = off)
+
         // --- Shared bank-target airspeed floor (v0.60, was BankToTurnVmin): the V floor in the
         // atan(omega*V/g) bank math, used at both lockstep sites (Apply's shared bankTR and
         // EvolvedLegacy) so low-speed/hover stays sane.
@@ -203,7 +209,7 @@ namespace NuclearOptionMouseAim
             YawGain             = cf.Bind("Control", "YawGain", 1.0f, new ConfigDescription(
                 "Yaw/rudder authority scale — the lever for fine horizontal alignment while the wings stay level. Raise it if small sideways corrections barely move the nose; lower it if the nose wags or feels twitchy. Negative flips.",
                 new AcceptableValueRange<float>(-2f, 3f)));
-            OutputSlew          = cf.Bind("Control", "OutputSlew", 6.0f, new ConfigDescription(
+            OutputSlew          = cf.Bind("Control", "OutputSlew", 10.0f, new ConfigDescription(
                 "Max stick travel per second — the anti-jerk rate limit. Lower = silkier but laggier; higher = sharper and more immediate, but can feel jerky.",
                 new AcceptableValueRange<float>(1f, 20f)));
             MaxBankAngle        = cf.Bind("Control", "MaxBankAngle", 72.0f, new ConfigDescription(
@@ -294,6 +300,15 @@ namespace NuclearOptionMouseAim
             BankSlewRate        = cf.Bind("Control", "BankSlewRate", 60f, new ConfigDescription(
                 "EvolvedLegacy law only (v0.54). Rate limit (deg/s) on the atan(omega*V/g) bank target the roll servo chases. Nineteen v0.53 recordings (KR67 + AB4 Alcyon, 450-536 m/s) showed the brake-clamped lead rectifying heading-rate ripple into a bank target that BANGED 0<->48-65 deg at ~1.5 Hz from a 1-3 deg aim error — the roll servo faithfully chased it (corr 0.79-0.96) and the wings rocked +/-14-30 deg while station-keeping. A target that can only move this fast can't flap above the airframe's own roll response, and a slower-moving target also shrinks the 15-20 deg bank overshoot that sustained the slower 0.5 Hz cycle in big turns. 60 deg/s still reaches the full 72 deg bank in ~1.2 s (about what a real roll-in takes). 0 = off (instant target, old behaviour). Lower toward 40 if the wings still rock; raise toward 90-120 if turn entry feels lazy.",
                 new AcceptableValueRange<float>(0f, 360f)));
+            NoseResponse        = cf.Bind("Feel", "NoseResponse", 3.0f, new ConfigDescription(
+                "How fast the nose closes on the aim circle, as a bandwidth in 1/seconds (3 = the error shrinks with a ~0.33 s time constant). Unlike PitchYawSensitivity this is normalized by the airframe's own stick-to-pitch-rate gain (read from the game's fly-by-wire), so it feels the SAME at every speed on every plane: the stick goes to full deflection as soon as the error is more than the plane can close in one time constant, then eases in linearly. It only ever ADDS authority over the stock law (the larger of the two wins), so it mainly wakes up the 2-20 degree band where the stock stick sat at about a third deflection. 0 = off (exact v0.68 pitch). Raise toward 4-5 for a harder snap; lower toward 2 if the nose overshoots or bobs after a pull. Fixed-wing only; inert if the fly-by-wire probe is unavailable.",
+                new AcceptableValueRange<float>(0f, 8f)));
+            AimFeedForward      = cf.Bind("Feel", "AimFeedForward", 0.6f, new ConfigDescription(
+                "Makes the plane start pitching on the same instant you move the mouse, instead of waiting for an error to build. The aim circle's own vertical speed is fed straight into the stick (scaled to the airframe's pitch-rate authority), so the nose keeps up with a moving circle rather than trailing it. It reads only your input, not the plane's motion, so it cannot cause wobble on its own. 0 = off (exact v0.68). 1 = the stick asks for exactly the circle's speed. ~0.6 is crisp without feeling twitchy; lower it if small hand tremors make the nose nod.",
+                new AcceptableValueRange<float>(0f, 1.5f)));
+            ActiveBankSlewBoost = cf.Bind("Feel", "ActiveBankSlewBoost", 3.0f, new ConfigDescription(
+                "Faster roll-in while you are actively steering. BankSlewRate caps how quickly the commanded bank may change (the cure for wings rocking while holding a still aim point), but it also makes every turn entry take over a second to reach its bank. While the aim circle is being moved, the cap is multiplied by this; it eases back to the plain BankSlewRate about 0.7 s after the mouse stops, so station-keeping is unchanged. 1 = off (exact v0.68). ~3 reaches a full bank in roughly 0.4 s. Lower it if turn entries over-bank or rock; raise it if rolls still feel lazy.",
+                new AcceptableValueRange<float>(1f, 6f)));
             BankSpeedFloor      = cf.Bind("Control", "BankSpeedFloor", 50f, new ConfigDescription(
                 "Airspeed FLOOR (m/s) used inside the speed-correct bank physics phi=atan(omega*V/g) at both lockstep sites (Apply's shared bank target and the EvolvedLegacy law). The bank is sized in proportion to airspeed V; at very low speed / hover V->0 would collapse the commanded bank to nothing, so V is floored here to keep the maths sane (a gentle, sensible bank rather than zero). Has no effect above this speed. ~50 m/s is a safe floor; raise it if low-speed turns feel too weak, lower it toward true stall speed for more honest slow-flight banking. (v0.60: renamed from BankToTurnVmin — an old cfg line with that key is ignored and this binds at the identical default 50, so behaviour is unchanged.)",
                 new AcceptableValueRange<float>(10f, 150f)));
@@ -349,9 +364,9 @@ namespace NuclearOptionMouseAim
             CameraPitchOffset     = cf.Bind("Camera", "CameraPitchOffset", 11f, new ConfigDescription(
                 "3rd-person only: degrees the view is pitched DOWN off the aim direction, trading the aim circle's screen position against the airframe's. 0 = circle dead-centre (plane low in frame); ~11 = circle a little above centre, plane a little below — 'behind and slightly above, looking down at the airframe'; ~22 = plane centred (circle high).",
                 new AcceptableValueRange<float>(0f, 22f)));
-            OrbitAimSmoothing     = cf.Bind("Camera", "OrbitAimSmoothing", 8f, new ConfigDescription(
-                "3rd-person only: how quickly the orbit camera's view direction chases the aim circle (per second, frame-rate independent). Higher = snappier tracking; lower = lazier, smoother swings. Position never lags the plane — this only smooths the direction.",
-                new AcceptableValueRange<float>(1f, 20f)));
+            OrbitAimSmoothing     = cf.Bind("Camera", "OrbitAimSmoothing", 16f, new ConfigDescription(
+                "3rd-person only: how quickly the orbit camera's view direction chases the aim circle (per second, frame-rate independent). Higher = snappier tracking; lower = lazier, smoother swings. Position never lags the plane — this only smooths the direction. The view lags your mouse by about 1/this seconds, which is felt as 'floaty' aiming: 8 (the pre-v0.69 default) is ~125 ms, 16 is ~60 ms, 40+ is effectively locked to the mouse (War Thunder style).",
+                new AcceptableValueRange<float>(1f, 60f)));
             HorizonDeadzoneDeg    = cf.Bind("Camera", "HorizonDeadzoneDeg", 5f, new ConfigDescription(
                 "3rd-person only: half-width (deg) of the no-horizon-level band straight up/down. Inside it the camera stops re-leveling to the world horizon and holds its current up so it can't flip through the singularity; leveling eases back in over this band as you come out (hysteresis), so over-the-top loops roll to the new level side smoothly instead of snapping. Smaller keeps the horizon level closer to vertical; larger widens the no-level hold band.",
                 new AcceptableValueRange<float>(0f, 20f)));
@@ -406,6 +421,7 @@ namespace NuclearOptionMouseAim
                 $"coordPull={CoordPullGain.Value:0.00} coordCap={CoordPullCap.Value:0.00} bankAuth={BankAuthGain.Value:0.0} yawFade={YawWeakFade.Value:0.00} " +
                 $"trGain={AssistTurnRateGain.Value:0.00} pullRel={CoordPullReleaseAngle.Value:0.0} alignHold={EvolvedAlignHoldDeg.Value:0.0} " +
                 $"leadT={TurnLeadTime.Value:0.00} bankSlew={BankSlewRate.Value:0} " +
+                $"noseResp={NoseResponse.Value:0.0} aimFF={AimFeedForward.Value:0.00} bankSlewBoost={ActiveBankSlewBoost.Value:0.0} " +
                 $"heliFwd={HeliForwardSpeed.Value:0} heliHover={HeliHoverSpeed.Value:0} heliYawSc={HeliYawScale.Value:0.00}";
         }
 

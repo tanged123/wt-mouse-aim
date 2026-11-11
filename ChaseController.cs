@@ -155,6 +155,16 @@ namespace NuclearOptionMouseAim
         private static bool    _settleOK;
         private static bool    _settleOn;
 
+        // WT-FEEL (v0.69). Two marker-motion signals, both derived from the aim direction the pilot is
+        // moving (never from the plane's own motion, so neither can close a feedback loop):
+        //   _aimPitchRateFilt — body-pitch component of the marker's own angular rate (rad/s, + = marker
+        //                       moving UP in the body frame), low-passed. Feeds the pitch feedforward.
+        //   _aimActive        — 0..1 "the pilot is actively steering" envelope: instant attack while the
+        //                       marker sweeps, ~0.7 s release. Lets the bank target slew faster for a
+        //                       deliberate input while station-keeping keeps the v0.54 anti-relay rate.
+        private static float   _aimPitchRateFilt;
+        private static float   _aimActive;
+
         // Hover / "flown-like-a-helicopter" regime state (v0.43). _collective latches the airframe class
         // (true = takeoffDistance==0 = heli/hover-VTOL) on engage; _heliBlend in [0,1] is the per-frame
         // regime blend (0 = fixed-wing bank-to-turn, 1 = hover yaw-to-point), computed in Apply from
@@ -509,6 +519,7 @@ namespace NuclearOptionMouseAim
                 _alphaSchedFilt = 1f; // fresh AoA-utilization demand schedule (v0.59)
                 _pitchEff = 1f; // fresh measured pitch-effectiveness estimate (v0.60)
                 _prevAimValid = false; _aimRateFilt = 0f; // fresh B2 marker-stationary gate (v0.65)
+                _aimPitchRateFilt = 0f; _aimActive = 0f;  // fresh WT-feel marker-motion signals (v0.69)
                 HideNativeVirtualJoystick();
                 WTMouseAimPlugin.Log.LogInfo($"WT Mouse Aim: ON ({(fixedWing ? "fixed-wing" : "rotorcraft")}) — chase control engaged.");
             }
@@ -596,10 +607,25 @@ namespace NuclearOptionMouseAim
                 {
                     float aimRate = Vector3.Angle(_prevAim, aimDir) / dt;
                     _aimRateFilt += (dt / (0.15f + dt)) * (aimRate - _aimRateFilt);
+                    // WT-FEEL (v0.69): the marker's own pitch-plane angular rate (rad/s). For unit vectors
+                    // |delta| ~ angle, so the body-up component of d(aim)/dt is how fast the marker is
+                    // climbing in the body frame. The marker is world-locked, so this is pure pilot input.
+                    // The mouse is sampled per RENDER frame and this runs per PHYSICS tick, so the raw
+                    // value is lumpy (0 on some ticks, doubled on others) — the 0.06 s low-pass evens it.
+                    // Fly Level moves aimDir with AoA (not the pilot), so it contributes nothing there.
+                    float aimPitchRate = flyLevel ? 0f : Vector3.Dot((aimDir - _prevAim) / dt, t.up);
+                    _aimPitchRateFilt += (dt / (0.06f + dt)) * (aimPitchRate - _aimPitchRateFilt);
                 }
+                else _aimPitchRateFilt = 0f;
                 _prevAim = aimDir; _prevAimValid = true;
                 const float aimStillRate = 3f; // deg/s — above frame noise (~0.8 deg/s), below a deliberate sweep
                 _settleOK = _aimRateFilt < aimStillRate;
+                // WT-FEEL (v0.69) active-steering envelope: full by ~15 deg/s of marker sweep, instant
+                // attack, ~0.7 s release (roughly one roll-in), so it outlives a quick flick but is gone
+                // again well before a stationary-marker relay could feed on it.
+                float aimActTgt = Mathf.Clamp01((_aimRateFilt - aimStillRate) / 12f);
+                _aimActive = aimActTgt > _aimActive ? aimActTgt
+                                                    : _aimActive + (dt / (0.7f + dt)) * (aimActTgt - _aimActive);
 
                 // PITCH/YAW: straight PROPORTIONAL pull toward the marker, MINUS a damping term on the
                 // nose's own turn rate so the inputs fade out as it closes instead of overshooting (the
@@ -809,6 +835,11 @@ namespace NuclearOptionMouseAim
                     omegaMax = (aircraft.flightAssist || qRatio > 1.2f) ? rpsRef : _fbwMaxPitchVel;
                     qSched   = Mathf.Clamp(qRatio, 0.3f, 1f); // the game's own q clamp, reused as the schedule
                 }
+                // WT-FEEL (v0.69): the FBW's stick->pitch-rate gain (rad/s per unit stick) for THIS airframe
+                // at THIS speed, captured BEFORE the v0.67 AoA-margin cap shrinks omegaMax below — the
+                // rate-normalized pitch terms need the real stick gain, not the turn-demand cap (the AoA
+                // gates still bound the resulting command post-law). 0 = probe unavailable => terms inert.
+                float omegaStick = fbwOk ? omegaMax : 0f;
 
                 // MEASURED PITCH-EFFECTIVENESS (v0.60) — the pitch twin of _yawWeak, consumed by
                 // ApplyEvolvedLegacy. Read the game FBW's OWN commanded vs achieved pitch rate (the recorder
@@ -1072,7 +1103,7 @@ namespace NuclearOptionMouseAim
                 float tgtP, tgtR, tgtY, pullGate, yawScale, coordPull;
                 _tBankFlown = targetBank; // the law overwrites this with its own slewed tBankE below
                 ApplyEvolvedLegacy(t, local, off, vMag, sens, fineGain, alignFrac, bigTurn, targetBank, azErr, azErrPred,
-                    phi, lateral, pitchRate, yawRate, rollRate, pitchDamp, damp, assist, dt, omegaMax, qSched,
+                    phi, lateral, pitchRate, yawRate, rollRate, pitchDamp, damp, assist, dt, omegaMax, qSched, omegaStick,
                     out tgtP, out tgtR, out tgtY, out pullGate, out yawScale, out coordPull);
 
                 // v0.56: the v0.55 assist-off pitch normalization (tgtP *= protected/achievable) was
@@ -1327,7 +1358,7 @@ namespace NuclearOptionMouseAim
         private static void ApplyEvolvedLegacy(
             Transform t, Vector3 local, float off, float vMag, float sens, float fineGain, float alignFrac, float bigTurn,
             float targetBank, float azErr, float azErrPred, float phi, float lateral, float pitchRate, float yawRate, float rollRate,
-            float pitchDamp, float damp, float assist, float dt, float omegaMax, float qSched,
+            float pitchDamp, float damp, float assist, float dt, float omegaMax, float qSched, float omegaStick,
             out float tgtP, out float tgtR, out float tgtY,
             out float pullGate, out float yawScale, out float coordPull)
         {
@@ -1395,6 +1426,13 @@ namespace NuclearOptionMouseAim
             // shrinks the 15-20 deg servo overshoot that sustained the slow 0.5 Hz big-turn cycle.
             // Applied BEFORE coordPull so the pull sizes off the bank actually being commanded.
             float slewR = Cfg.BankSlewRate.Value;
+            // WT-FEEL (v0.69) ACTIVE-STEERING SLEW BOOST. The 60 deg/s limit exists to stop a bank target
+            // flapping while STATION-KEEPING on a still marker (the v0.53 relay) — but it also makes every
+            // deliberate turn entry take >1 s to reach its bank, which reads as a lazy roll. While the
+            // pilot is actually moving the marker (_aimActive, input-derived, not a feedback signal) let
+            // the target move ActiveBankSlewBoost x faster; it eases back to the anti-relay rate ~0.7 s
+            // after the mouse stops, so the stationary-marker case is unchanged.
+            slewR *= Mathf.Lerp(1f, Mathf.Max(1f, Cfg.ActiveBankSlewBoost.Value), _aimActive);
             if (slewR > 0f) tBankE = Mathf.MoveTowards(_tBankSlewed, tBankE, slewR * dt);
             _tBankSlewed = tBankE;
             _tBankFlown  = tBankE; // recorder: the target this law's roll servo really flies
@@ -1457,6 +1495,48 @@ namespace NuclearOptionMouseAim
             // only: _pitchEff is measured under a !_collective guard (see the estimator), so on rotorcraft
             // it is a stale hold, not a live reading — scaling by it there would apply a meaningless number.
             // Rotorcraft keep pre-v0.64 behaviour exactly.
+            // WT-FEEL (v0.69) — RATE-NORMALIZED PITCH + AIM FEEDFORWARD. Fixed-wing, FBW probe resolved.
+            //
+            // (1) Constant-bandwidth P. The direct term above is stick = sin(err)*sens*fineGain, and the
+            // FBW turns stick into a pitch RATE (stick * omegaStick), so the loop's real bandwidth is
+            // sens*fineGain*omegaStick — it FALLS with speed (omegaStick = gLimit*g/V) and, because
+            // fineGain fades out by FineAngle, the stick is nearly FLAT (~0.3) from 2 to 8 deg of error
+            // and does not rail until ~20 deg. That flat mid-band is the "sluggish, raising the gain
+            // helps but something is missing" feel: the nose closes at a third of the rate it has on
+            // tap, and raising sens only fixes it by making boresight hotter too. Command a nose RATE
+            // instead, omega = NoseResponse * err, and divide by the airframe's own stick gain: the
+            // closure time constant is then 1/NoseResponse at every speed on every airframe, and the
+            // stick rails as soon as the error exceeds omegaStick/NoseResponse (about what the plane
+            // can close in one time constant) — full authority until close, then a linear ease-in.
+            // Taken as a FLOOR on the existing term (larger magnitude wins; both share a sign), so
+            // nothing is ever LESS responsive than v0.68 and near-boresight behaviour only changes
+            // where the old loop was slower than the requested bandwidth. It rides the same qSched /
+            // _pitchEff / AoA-gate chain as the term it replaces (low-q, loaded and reversed plants
+            // keep their protections). This is the "pitch as k*err/omegaMax" idea from the removed
+            // Unified law, revived as GENERALITY-REVIEW suggested — probed parameter + live state only.
+            //
+            // (2) Aim feedforward. A P-only loop cannot move until an error has built up, so the nose
+            // always trails a moving marker by rate/bandwidth. Feed the marker's OWN pitch rate forward
+            // (stick = rate/omegaStick): the plane starts moving on the same tick the mouse does. It is
+            // derived purely from pilot input, so it adds no loop gain and cannot limit-cycle; capped,
+            // pull-gated, and faded out in a big turn (where the roll-then-pull plan owns the pitch).
+            if (!_collective && omegaStick > 1e-3f)
+            {
+                float kNose = Cfg.NoseResponse.Value;
+                if (kNose > 0f)
+                {
+                    float elevRad = Mathf.Asin(Mathf.Clamp(local.y, -1f, 1f));
+                    float pRate = -Mathf.Clamp(kNose * elevRad / omegaStick, -1f, 1f) * pullGate;
+                    if (Mathf.Abs(pRate) > Mathf.Abs(pErrTerm)) pErrTerm = pRate;
+                }
+                float ffGain = Cfg.AimFeedForward.Value;
+                if (ffGain > 0f)
+                {
+                    const float ffCap = 0.5f; // stick; a flick can add at most this much on top of P
+                    pErrTerm -= Mathf.Clamp(ffGain * _aimPitchRateFilt / omegaStick, -ffCap, ffCap)
+                              * pullGate * (1f - bigTurn);
+                }
+            }
             const float effFloor = 0.3f; // regime constant (revThresh is the shared PEffRevThresh field)
             if (!_collective) pErrTerm *= _pitchEff >= PEffRevThresh ? Mathf.Max(effFloor, _pitchEff) : _pitchEff;
             tgtP = Mathf.Clamp(((pErrTerm - coordPull) * qSched + _iPitch + pitchRate * pitchDamp) * Cfg.PitchGain.Value, -1f, 1f);

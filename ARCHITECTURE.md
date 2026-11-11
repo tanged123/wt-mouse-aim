@@ -1,6 +1,6 @@
 # Architecture — WT Mouse Aim
 
-<!-- ARCH-VERSION: 0.68.0 -->
+<!-- ARCH-VERSION: 0.69.0 -->
 
 The system diagram for this mod. **L0** is the at-a-glance map; **L1** sections zoom into each box.
 Every box carries a stable node id (`aim_rig`, `chase_apply`, …) — the [Node index](#node-index) maps
@@ -221,7 +221,8 @@ flowchart TB
         m1["aimDir = marker, or the latched<br/>heading when Fly Level is active<br/>(flown as TRUE level: pitched up by live AoA<br/>so the velocity vector, not the nose, sits level)"]
         m2["body-frame marker: local = InverseTransformDirection<br/>x=right y=up z=fwd · off = angle(nose, aim)"]
         m3["nose rates from Δforward/Δup per tick<br/>pitchRate · yawRate · rollRate · noseTurnDeg"]
-        m1 --> m2 --> m3
+        m4["marker-motion signals (v0.69)<br/>aim pitch rate (rad/s) · active-steering envelope<br/>pilot input only — never the plane's own motion"]
+        m1 --> m2 --> m3 --> m4
     end
 
     subgraph EST["2 · ESTIMATE REGIME"]
@@ -240,7 +241,7 @@ flowchart TB
     end
 
     subgraph LAW["4 · CONTROL LAW (one law — EvolvedLegacy; Unified removed v0.65)"]
-        l1["<b>ApplyEvolvedLegacy</b> ← the only law<br/>speed-aware bank target · slew limit<br/>v0.64: pErrTerm scaled by measured _pitchEff,<br/>reversal-gated floor v0.65 C1, latch-fixed v0.67<br/>(fixed-wing only — rotorcraft untouched)<br/>q + AoA demand schedules · helo rate normalisation<br/>(forced for all rotorcraft)<br/>v0.65 B2: sub-0.5° fine-settle micro-bank; v0.67:<br/>turn demand RAMPS in over [0.5°,2°] (no gate-exit step)<br/>v0.67: down-hemisphere roll-to-align suppressed →<br/>bounded pushover closes below-targets (no 90° hang)"]
+        l1["<b>ApplyEvolvedLegacy</b> ← the only law<br/>speed-aware bank target · slew limit<br/>v0.64: pErrTerm scaled by measured _pitchEff,<br/>reversal-gated floor v0.65 C1, latch-fixed v0.67<br/>(fixed-wing only — rotorcraft untouched)<br/>q + AoA demand schedules · helo rate normalisation<br/>(forced for all rotorcraft)<br/>v0.65 B2: sub-0.5° fine-settle micro-bank; v0.67:<br/>turn demand RAMPS in over [0.5°,2°] (no gate-exit step)<br/>v0.67: down-hemisphere roll-to-align suppressed →<br/>bounded pushover closes below-targets (no 90° hang)<br/>v0.69 WT-feel: pitch P floored by a RATE-NORMALIZED term<br/>(NoseResponse·err / probed stick gain) + aim-rate<br/>feedforward; bank-target slew boosted while steering"]
     end
 
     subgraph COND["5 · CONDITION"]
@@ -274,7 +275,7 @@ flowchart TB
     MEAS --> EST --> PROBE --> LAW --> COND --> MAN --> WRITE
 
     classDef mod fill:#1e3a8a,stroke:#60a5fa,color:#eff6ff
-    class m1,m2,m3,e1,e2,e3,e4,e5,p1,p2,p3,l1,c1,c2,c2b,c2c,c2d,c3,c4,c5,h1,h2,h3,h4,w1,w2,w3,w4,w5 mod
+    class m1,m2,m3,m4,e1,e2,e3,e4,e5,p1,p2,p3,l1,c1,c2,c2b,c2c,c2d,c3,c4,c5,h1,h2,h3,h4,w1,w2,w3,w4,w5 mod
 ```
 
 ### Why the probes exist
@@ -319,6 +320,13 @@ brief neutral stick never drags a good jet down. The v0.59 AoA recovery bias is 
 unfloored — a reversed plant cannot be recovered by commanding more, and the traces show that term
 sustaining the limit cycle. Fail-soft: holds its last value on any read miss (probe unavailable / manual
 / read error — distinct from the dead-command self-probe above, which only fires with a live FBW).
+
+**The FBW stick gain also shapes the pitch demand itself (v0.69).** `omegaStick` — the same
+reconstructed stick→pitch-rate gain, captured *before* the v0.67 AoA-margin cap — normalizes two terms
+inside `ApplyEvolvedLegacy`: a constant-bandwidth P (`NoseResponse · err / omegaStick`, taken as a floor
+on the direct `sens·fineGain` term so nothing is less responsive than v0.68) and a feedforward of the
+marker's own pitch rate (`AimFeedForward`). Both ride the existing `qSched` / `_pitchEff` / AoA-gate
+chain. Fail-soft like every probe consumer: FBW unresolved or rotorcraft ⇒ `omegaStick = 0` ⇒ both inert.
 
 ### The generality rule (the reason the probes carry so much weight)
 
@@ -417,7 +425,7 @@ flowchart LR
     cfg -->|"SettingChanged hook"| logline["🟩 config logged at startup<br/>+ on every live edit"]
     cfg -->|"NoteConfigChange"| csvcomment["🟩 '# cfg' comment row<br/>inside the active recording"]
 
-    cfg --> sec["<b>sections</b><br/>General · HUD · Aim · Control · Camera<br/>Recorder · FlyLevel · ZZZ-Panic Button"]
+    cfg --> sec["<b>sections</b><br/>General · HUD · Aim · Control · Feel · Camera<br/>Recorder · FlyLevel · ZZZ-Panic Button"]
 
     classDef mod fill:#1e3a8a,stroke:#60a5fa,color:#eff6ff
     classDef plat fill:#78350f,stroke:#fbbf24,color:#fffbeb

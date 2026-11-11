@@ -51,6 +51,13 @@ the honest cost: several findings were "fixed by Unified" and now revert to the 
   `lateralHold` — live geometry only. Softens the "no-bunt" tenet to a *bounded* negative-g for moderate
   below-targets only (maintainer-blessed); large below-reorientations still roll-and-pull.
 
+**Status (v0.69, WT-feel fork):** findings **1 & 2 → further PROGRESS**. The "future EL pitch mode"
+above is now in EL as a *floor*: pitch demand is `max(direct term, NoseResponse·err/omegaStick)` with
+`omegaStick` the probed stick→pitch-rate gain, so closure bandwidth no longer falls with speed or with
+a low g-limit. Not flight-verified yet against the four reference cases (light jet at high q, loaded jet
+near its alpha limit, low-limit STOL trainer, hovering helo — the helo is untouched by construction).
+Finding **5 stays OPEN** (roll is still fixed-gain; only the bank-target slew became input-aware).
+
 ## What the law already does right (the pattern to copy)
 
 - **Fail-soft probes** supply the airframe truth: FBW pitch-rate params + gLimit/alphaLimiter

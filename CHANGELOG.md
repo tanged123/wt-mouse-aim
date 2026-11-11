@@ -3,6 +3,47 @@
 All notable changes to WT Mouse Aim. Versions are the `PluginVersion` in `WTMouseAimPlugin.cs`
 (the single source of truth); each release is published via `release.ps1`.
 
+## 0.69.0
+
+"War Thunder feel" pass — responsiveness, not stability. Three additions to the one law, each keyed to a
+probed parameter or to the pilot's own input, each with an exact-v0.68 "off" value. **Not yet flown.**
+
+### Why it felt sluggish even with the gains turned up
+
+The pitch term was `stick = sin(err) · sens · fineGain`, and the FBW turns stick into a pitch *rate*. Two
+consequences: (1) `fineGain` fades from 3.5× at boresight to 1× at `FineAngle`, so stick-vs-error is
+almost flat — about 0.16 at 1°, 0.35 at 3°, 0.31 at 6°, 0.52 at 10°, railing only near 20°. Across the
+2–8° band the nose closes at roughly a third of the rate the airframe has available. (2) the loop's real
+bandwidth is `sens · fineGain · (gLimit·g/V)`, so it falls as speed rises. Raising `PitchYawSensitivity`
+shortens the mid-band but makes boresight hotter by the same factor, which is why it never quite fixed it.
+
+### What changed
+
+- **`Feel/NoseResponse` (default 3.0 s⁻¹)** — rate-normalized pitch. Demand a nose rate `k·err` and
+  divide by the probed stick→rate gain, so the closure time constant is `1/k` at every speed on every
+  airframe and the stick rails once the error exceeds what the plane can close in one time constant.
+  Applied as a floor on the existing term. `0` = off.
+- **`Feel/AimFeedForward` (default 0.6)** — the marker's own pitch rate is fed forward into the stick, so
+  the plane moves on the same tick as the mouse instead of after an error accumulates. Input-derived
+  only (adds no loop gain). `0` = off.
+- **`Feel/ActiveBankSlewBoost` (default 3×)** — `BankSlewRate` (60°/s) is multiplied while the marker is
+  being moved and eases back ~0.7 s after it stops. Turn entry reaches its bank in ~0.4 s instead of
+  ~1.2 s; station-keeping on a still marker keeps the v0.54 anti-relay rate. `1` = off.
+- Defaults: `OutputSlew` 6 → 10 (full-stick step in 0.1 s, was 0.17 s); `OrbitAimSmoothing` 8 → 16 and
+  its range widened to 60 (the 3rd-person view lagged the mouse by ~125 ms; 40+ is effectively locked).
+  **An existing `com.no.wtmouseaim.cfg` keeps its saved values** — set these two by hand or use the
+  reset button.
+
+### Flight tests that would prove or break it
+
+- Light jet, 250–350 m/s, 5–15° pitch nudges: nose should close in ~⅓ s with no bob. Fail = a 1–2 Hz
+  pitch nod after arrival → lower `NoseResponse`.
+- Loaded jet just above corner speed, hard pull to the alpha limit: no return of the 0.5 Hz rail-to-rail
+  pitch relay (`qSched`/`pEff` in a recording should still drop as before).
+- Takeoff and climb-out below corner speed: no growing pitch oscillation (the v0.56 case).
+- 450 m/s+, hold a still marker 1–3° off: wings must not rock (v0.53 case). Then flick 30° sideways:
+  bank should arrive visibly faster than v0.68 without overshooting past the target bank.
+
 ## 0.68.0
 
 Compatibility fix for **Nuclear Option 0.34.0**. No control-law change.
