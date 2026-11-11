@@ -148,6 +148,11 @@ from HEAD at build time, so building first ships a DLL that names the *previous*
 breaks the one check NOMNOM policy clause 2.2 rests on (rebuild the tag, get the same binary).
 Correspondingly the manifest bump lands *after* the tag: the tag must stay on the exact commit the
 DLL was built from.
+**CI alternative (fork, v0.69):** [`.github/workflows/release.yml`](.github/workflows/release.yml)
+builds and publishes the DLL (plus a zip) when a `vX.Y.Z` tag matching `PluginVersion` is pushed. It
+compiles against game assemblies fetched from a **private** repo via the `GAME_REFS_TOKEN` secret —
+setup steps are in the workflow header. It does not touch the NOMNOM manifest.
+
 > **Agents can't run this:** `release.ps1` is PowerShell and drives `git push` + a GitHub release —
 > outward-facing and hard to reverse. The agent's job is to bump `PluginVersion`, get a clean
 > Release build, and let the **user** run `release.ps1` in a normal PowerShell window.
