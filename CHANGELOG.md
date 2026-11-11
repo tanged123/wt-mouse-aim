@@ -3,6 +3,30 @@
 All notable changes to WT Mouse Aim. Versions are the `PluginVersion` in `WTMouseAimPlugin.cs`
 (the single source of truth); each release is published via `release.ps1`.
 
+## 0.71.0
+
+Sluggish response to diagonal mouse movement.
+
+v0.69 made pitch fast (≈0.33 s, plus feedforward) but left the lateral path error-only at
+`AssistTurnRateGain` 0.9 s⁻¹ — and the heading-rate lead brakes that by up to 70 %. On a diagonal drag
+the nose reached the cursor's height at once and then crept sideways for 1–3 s at a shallow bank. The
+lateral gain can't just be raised (the bank lags its command by ~0.7 s; 1.5 limit-cycled in v0.42), so
+the pitch treatment is applied sideways instead:
+
+- the marker's **world-horizontal rate** is added to the turn-rate demand that sizes the bank
+  (`AimFeedForward × rate`, both lockstep sites, inside the achievability cap / `MaxBankAngle` / slew);
+- its **body-right rate** is added to the yaw-rate command (capped 0.4, faded in big turns and where
+  the rudder is measured weak).
+
+Both are derived from the pilot's input only, so neither adds loop gain. `AimFeedForward = 0` restores
+v0.70 exactly. Fixed-wing only.
+
+Flight tests: at 200–350 m/s drag the cursor diagonally ~15° at a steady pace in each of the four
+directions — pass = nose travels on a roughly straight line to the cursor and the bank appears during
+the drag, not after it; fail = height first, then a slow sideways creep. Then a fast sideways flick and
+stop: bank must not overshoot and rock (lower `AimFeedForward` if it does). Still marker 1–3° off at
+450 m/s+: no wing rock (feedforward is zero there, so this should be unchanged).
+
 ## 0.70.0
 
 Yaw wobble when the yaw gains are turned up.

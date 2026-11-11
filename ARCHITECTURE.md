@@ -1,6 +1,6 @@
 # Architecture — WT Mouse Aim
 
-<!-- ARCH-VERSION: 0.70.0 -->
+<!-- ARCH-VERSION: 0.71.0 -->
 
 The system diagram for this mod. **L0** is the at-a-glance map; **L1** sections zoom into each box.
 Every box carries a stable node id (`aim_rig`, `chase_apply`, …) — the [Node index](#node-index) maps
@@ -221,7 +221,7 @@ flowchart TB
         m1["aimDir = marker, or the latched<br/>heading when Fly Level is active<br/>(flown as TRUE level: pitched up by live AoA<br/>so the velocity vector, not the nose, sits level)"]
         m2["body-frame marker: local = InverseTransformDirection<br/>x=right y=up z=fwd · off = angle(nose, aim)"]
         m3["nose rates from Δforward/Δup per tick<br/>pitchRate · yawRate · rollRate · noseTurnDeg"]
-        m4["marker-motion signals (v0.69)<br/>aim pitch rate (rad/s) · active-steering envelope<br/>pilot input only — never the plane's own motion"]
+        m4["marker-motion signals (v0.69)<br/>aim pitch / yaw / world-turn rates (rad/s, v0.71)<br/>active-steering envelope<br/>pilot input only — never the plane's own motion"]
         m1 --> m2 --> m3 --> m4
     end
 
@@ -241,7 +241,7 @@ flowchart TB
     end
 
     subgraph LAW["4 · CONTROL LAW (one law — EvolvedLegacy; Unified removed v0.65)"]
-        l1["<b>ApplyEvolvedLegacy</b> ← the only law<br/>speed-aware bank target · slew limit<br/>v0.64: pErrTerm scaled by measured _pitchEff,<br/>reversal-gated floor v0.65 C1, latch-fixed v0.67<br/>(fixed-wing only — rotorcraft untouched)<br/>q + AoA demand schedules · helo rate normalisation<br/>(forced for all rotorcraft)<br/>v0.65 B2: sub-0.5° fine-settle micro-bank; v0.67:<br/>turn demand RAMPS in over [0.5°,2°] (no gate-exit step)<br/>v0.67: down-hemisphere roll-to-align suppressed →<br/>bounded pushover closes below-targets (no 90° hang)<br/>v0.69 WT-feel: pitch P floored by a RATE-NORMALIZED term<br/>(NoseResponse·err / probed stick gain) + aim-rate<br/>feedforward; bank-target slew boosted while steering<br/>v0.70: yaw rate damping tracks the configured yaw gain<br/>(YawLeadTime) so raising gains cannot un-damp the nose"]
+        l1["<b>ApplyEvolvedLegacy</b> ← the only law<br/>speed-aware bank target · slew limit<br/>v0.64: pErrTerm scaled by measured _pitchEff,<br/>reversal-gated floor v0.65 C1, latch-fixed v0.67<br/>(fixed-wing only — rotorcraft untouched)<br/>q + AoA demand schedules · helo rate normalisation<br/>(forced for all rotorcraft)<br/>v0.65 B2: sub-0.5° fine-settle micro-bank; v0.67:<br/>turn demand RAMPS in over [0.5°,2°] (no gate-exit step)<br/>v0.67: down-hemisphere roll-to-align suppressed →<br/>bounded pushover closes below-targets (no 90° hang)<br/>v0.69 WT-feel: pitch P floored by a RATE-NORMALIZED term<br/>(NoseResponse·err / probed stick gain) + aim-rate<br/>feedforward; bank-target slew boosted while steering<br/>v0.70: yaw rate damping tracks the configured yaw gain<br/>(YawLeadTime) so raising gains cannot un-damp the nose<br/>v0.71: marker's horizontal rate fed forward as turn-rate<br/>demand (bank) and as yaw rate (rudder)"]
     end
 
     subgraph COND["5 · CONDITION"]

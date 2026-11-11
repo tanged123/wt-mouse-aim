@@ -164,6 +164,12 @@ namespace NuclearOptionMouseAim
         //                       deliberate input while station-keeping keeps the v0.54 anti-relay rate.
         private static float   _aimPitchRateFilt;
         private static float   _aimActive;
+        // v0.71 lateral twins of _aimPitchRateFilt (same rule: pilot input only, never the plane's motion):
+        //   _aimYawRateFilt  — body-right component of the marker's angular rate (rad/s, + = moving right).
+        //   _aimTurnRateFilt — the marker's WORLD-horizontal angular rate (rad/s, + = moving right):
+        //                      the turn rate the flight path must hold to keep up with the drag.
+        private static float   _aimYawRateFilt;
+        private static float   _aimTurnRateFilt;
 
         // Hover / "flown-like-a-helicopter" regime state (v0.43). _collective latches the airframe class
         // (true = takeoffDistance==0 = heli/hover-VTOL) on engage; _heliBlend in [0,1] is the per-frame
@@ -520,6 +526,7 @@ namespace NuclearOptionMouseAim
                 _pitchEff = 1f; // fresh measured pitch-effectiveness estimate (v0.60)
                 _prevAimValid = false; _aimRateFilt = 0f; // fresh B2 marker-stationary gate (v0.65)
                 _aimPitchRateFilt = 0f; _aimActive = 0f;  // fresh WT-feel marker-motion signals (v0.69)
+                _aimYawRateFilt = 0f; _aimTurnRateFilt = 0f; // ... and their lateral twins (v0.71)
                 HideNativeVirtualJoystick();
                 WTMouseAimPlugin.Log.LogInfo($"WT Mouse Aim: ON ({(fixedWing ? "fixed-wing" : "rotorcraft")}) — chase control engaged.");
             }
@@ -613,10 +620,21 @@ namespace NuclearOptionMouseAim
                     // The mouse is sampled per RENDER frame and this runs per PHYSICS tick, so the raw
                     // value is lumpy (0 on some ticks, doubled on others) — the 0.06 s low-pass evens it.
                     // Fly Level moves aimDir with AoA (not the pilot), so it contributes nothing there.
-                    float aimPitchRate = flyLevel ? 0f : Vector3.Dot((aimDir - _prevAim) / dt, t.up);
+                    Vector3 aimVel = (aimDir - _prevAim) / dt;
+                    float aimPitchRate = flyLevel ? 0f : Vector3.Dot(aimVel, t.up);
                     _aimPitchRateFilt += (dt / (0.06f + dt)) * (aimPitchRate - _aimPitchRateFilt);
+                    // v0.71 lateral twins. Body-right component feeds the rudder; the world-horizontal
+                    // component (tangent to the horizon at the marker — already deprojected, so it does
+                    // not inflate near the vertical) feeds the turn-rate bank target. The bank path gets
+                    // a slightly longer filter: it drives a roll, where a lumpy target costs more.
+                    float aimYawRate = flyLevel ? 0f : Vector3.Dot(aimVel, t.right);
+                    _aimYawRateFilt += (dt / (0.06f + dt)) * (aimYawRate - _aimYawRateFilt);
+                    Vector3 aimRightH = Vector3.Cross(Vector3.up, aimDir);
+                    float aimTurnRate = (flyLevel || aimRightH.sqrMagnitude < 1e-4f)
+                        ? 0f : Vector3.Dot(aimVel, aimRightH.normalized);
+                    _aimTurnRateFilt += (dt / (0.10f + dt)) * (aimTurnRate - _aimTurnRateFilt);
                 }
-                else _aimPitchRateFilt = 0f;
+                else { _aimPitchRateFilt = 0f; _aimYawRateFilt = 0f; _aimTurnRateFilt = 0f; }
                 _prevAim = aimDir; _prevAimValid = true;
                 const float aimStillRate = 3f; // deg/s — above frame noise (~0.8 deg/s), below a deliberate sweep
                 _settleOK = _aimRateFilt < aimStillRate;
@@ -1044,6 +1062,8 @@ namespace NuclearOptionMouseAim
                 const float azRampW = 1.5f; // deg; regime constant (geometry of the hand-off, not per-plane). LOCKSTEP with EL.
                 float azTR = azErrPred * Mathf.Clamp01((Mathf.Abs(azErr) - 0.5f) / azRampW);
                 float omegaDes = azTR * Mathf.Deg2Rad * Cfg.AssistTurnRateGain.Value;            // rad/s, signed
+                // v0.71 TURN-RATE FEEDFORWARD (LOCKSTEP with EL's local copy — see the rationale there).
+                if (!_collective) omegaDes += Cfg.AimFeedForward.Value * _aimTurnRateFilt;
                 // ACHIEVABILITY CAP (v0.55) — the low-speed anti-windup. Below corner speed the FBW's
                 // deliverable pitch rate collapses (x q_ratio, see the probe above) but the turn-rate
                 // demand didn't know that: it kept asking for a turn the plane can't fly, the bank target
@@ -1382,6 +1402,20 @@ namespace NuclearOptionMouseAim
             const float azRampW = 1.5f; // deg; regime constant. MUST match the shared site.
             float azTR = azErrPred * Mathf.Clamp01((Mathf.Abs(azErr) - 0.5f) / azRampW);
             float omega  = azTR * Mathf.Deg2Rad * Cfg.AssistTurnRateGain.Value;                              // rad/s, signed
+            // v0.71 TURN-RATE FEEDFORWARD — the diagonal-drag fix. Since v0.69 pitch closes with a ~0.33 s
+            // time constant and moves on the same tick as the mouse, but the lateral path was still
+            // error-only at AssistTurnRateGain (0.9 1/s, and up to 70% less once the heading-rate lead
+            // brakes it): on a diagonal drag the nose reached the cursor's elevation at once and then
+            // crept sideways for 1-3 s, and with nothing to pull against in the meantime the plane sat
+            // at a shallow bank doing neither. Lateral gain cannot simply be raised — the bank lags its
+            // command by ~0.7 s, which is what made 1.5 limit-cycle (v0.42). So do what was done for
+            // pitch: feed the marker's OWN horizontal angular rate forward as turn-rate demand. Dragging
+            // the cursor sideways at w rad/s asks for the bank that turns at AimFeedForward*w, on the
+            // tick the drag starts; the error term then only has to trim what is left. Input-derived,
+            // so it adds no loop gain. It sits OUTSIDE the settle ramp/lead clamp (those shape the error
+            // term) but INSIDE the achievability cap, MaxBankAngle and the bank slew below, so it can
+            // never ask for more than the wing can fly. LOCKSTEP with Apply's shared omegaDes site.
+            if (!_collective) omega += Cfg.AimFeedForward.Value * _aimTurnRateFilt;
             // v0.55 ACHIEVABILITY CAP — the SAME clamp Apply's shared bankTR block applies to omegaDes
             // (see the comment there); the two sites MUST stay in lockstep, same rule as the azErrPred
             // note above. At low speed this shrinks the bank target physically instead of letting it slam
@@ -1569,6 +1603,14 @@ namespace NuclearOptionMouseAim
             // what is already there (1 + 0.25), so stock behaviour is unchanged; it only ever ADDS
             // damping. Pure function of the configured gains + the game's own law — no per-plane
             // constant. Fixed-wing direct-yaw path only (the helo branch is already rate-normalized).
+            // v0.71 YAW FEEDFORWARD — the rudder half of the diagonal-drag fix. The yaw stick is a yaw-rate
+            // target in rad/s, so the marker's body-right rate goes in directly: the nose starts to slide
+            // toward a sideways drag immediately (sideslip), while the feedforward bank above brings the
+            // flight path round behind it. Capped, faded in a big turn (roll-then-pull owns those) and by
+            // yawWeakFade (no rudder where it has been measured useless). Fixed-wing direct path only.
+            if (!_collective)
+                yErrTerm += Mathf.Clamp(Cfg.AimFeedForward.Value * _aimYawRateFilt, -0.4f, 0.4f)
+                          * (1f - bigTurn) * yawWeakFade;
             float yawDampExtra = 0f;
             float yawGainAbs = Mathf.Abs(Cfg.YawGain.Value);
             if (!(_collective && _heloOk) && Cfg.YawLeadTime.Value > 0f)
