@@ -211,6 +211,12 @@ too.** A green checker on a wrong diagram is the failure mode to avoid.
   and what a pass vs. a failure looks like (name the signal, e.g. "no 0.5 Hz rail-to-rail pitch
   cycle", "AoA stays under the limiter"). Cite a comparable capture in `debugtests/` when one exists.
   Keep it to the few tests that actually discriminate; there is no tracking file to append to.
+- **ArcadeCam compatibility (fork).** `BepInVersion` (what BepInEx reports) is pinned to the upstream
+  release ArcadeCam's WT Mouse Aim bridge accepts (exactly `0.68.0`); `PluginVersion` is the fork's own
+  version. ArcadeCam also transpiles `AimRig.Update` / `WTMouseAimPlugin.OnGUI` (counting their
+  `CameraStateManager.cameraMode` reads and `Cfg.ShowOverlay` / `Cfg.GLocFadeEnabled` loads), postfixes
+  `AimRig.AimFrozen`, and reflects `AimRig.AimForward` / `LookDelta` plus several `Cfg` fields by name —
+  changing any of those breaks third-person aiming for ArcadeCam users.
 - Bump `PluginVersion` on every shipped change. The Awake load-line stays a SHORT one-liner
   (version + hotkeys + "see CHANGELOG.md") — version history goes in `CHANGELOG.md` only, never
   into the log string (it used to mirror the whole changelog; deliberately cut in v0.57).

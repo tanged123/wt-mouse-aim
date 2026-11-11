@@ -14,12 +14,18 @@ namespace NuclearOptionMouseAim
     // the nose converges and the marker slides back to the boresight once we arrive. The game's own
     // FlyByWire/AutoTrimmer keep it inside the envelope (we leave flightAssist on). The cockpit camera
     // also smoothly looks toward the marker. See warthunder_mouseaim_spec.md.
-    [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
+    [BepInPlugin(PluginGuid, PluginName, BepInVersion)]
     public class WTMouseAimPlugin : BaseUnityPlugin
     {
         public const string PluginGuid    = "com.no.wtmouseaim";
         public const string PluginName    = "WT Mouse Aim";
-        public const string PluginVersion = "0.69.0";
+        public const string PluginVersion = "0.69.1";
+        // The version BepInEx (and therefore other plugins) sees. Held at the upstream release this
+        // fork's AimRig/OnGUI/Cfg surface is identical to, because ArcadeCam's optional WT Mouse Aim
+        // bridge enables itself only for exactly 0.68.0 and otherwise leaves third-person aiming dead.
+        // Raise it ONLY when rebasing onto a newer upstream that ArcadeCam has validated. PluginVersion
+        // above stays the real (fork) version for logs, recordings, CHANGELOG and releases.
+        public const string BepInVersion  = "0.68.0";
 
         internal static ManualLogSource Log;
 

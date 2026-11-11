@@ -3,6 +3,16 @@
 All notable changes to WT Mouse Aim. Versions are the `PluginVersion` in `WTMouseAimPlugin.cs`
 (the single source of truth); each release is published via `release.ps1`.
 
+## 0.69.1
+
+Compatibility fix, no control-law change. **ArcadeCam third-person aiming was dead on 0.69.0**: its
+optional WT Mouse Aim bridge reads this plugin's BepInEx version and switches itself off for anything
+but exactly `0.68.0`. The plugin now reports `BepInVersion = "0.68.0"` to BepInEx (the upstream release
+whose `AimRig` / `OnGUI` / `Cfg` surface this fork still matches in the methods ArcadeCam rewrites),
+while `PluginVersion` remains the real fork version in the log line, recordings and releases.
+Do not edit `AimRig.Update`, `AimRig.AimFrozen` or `WTMouseAimPlugin.OnGUI` casually — ArcadeCam
+transpiles them and validates their shape.
+
 ## 0.69.0
 
 "War Thunder feel" pass — responsiveness, not stability. Three additions to the one law, each keyed to a
