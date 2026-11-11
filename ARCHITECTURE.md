@@ -1,6 +1,6 @@
 # Architecture — WT Mouse Aim
 
-<!-- ARCH-VERSION: 0.69.1 -->
+<!-- ARCH-VERSION: 0.70.0 -->
 
 The system diagram for this mod. **L0** is the at-a-glance map; **L1** sections zoom into each box.
 Every box carries a stable node id (`aim_rig`, `chase_apply`, …) — the [Node index](#node-index) maps
@@ -241,7 +241,7 @@ flowchart TB
     end
 
     subgraph LAW["4 · CONTROL LAW (one law — EvolvedLegacy; Unified removed v0.65)"]
-        l1["<b>ApplyEvolvedLegacy</b> ← the only law<br/>speed-aware bank target · slew limit<br/>v0.64: pErrTerm scaled by measured _pitchEff,<br/>reversal-gated floor v0.65 C1, latch-fixed v0.67<br/>(fixed-wing only — rotorcraft untouched)<br/>q + AoA demand schedules · helo rate normalisation<br/>(forced for all rotorcraft)<br/>v0.65 B2: sub-0.5° fine-settle micro-bank; v0.67:<br/>turn demand RAMPS in over [0.5°,2°] (no gate-exit step)<br/>v0.67: down-hemisphere roll-to-align suppressed →<br/>bounded pushover closes below-targets (no 90° hang)<br/>v0.69 WT-feel: pitch P floored by a RATE-NORMALIZED term<br/>(NoseResponse·err / probed stick gain) + aim-rate<br/>feedforward; bank-target slew boosted while steering"]
+        l1["<b>ApplyEvolvedLegacy</b> ← the only law<br/>speed-aware bank target · slew limit<br/>v0.64: pErrTerm scaled by measured _pitchEff,<br/>reversal-gated floor v0.65 C1, latch-fixed v0.67<br/>(fixed-wing only — rotorcraft untouched)<br/>q + AoA demand schedules · helo rate normalisation<br/>(forced for all rotorcraft)<br/>v0.65 B2: sub-0.5° fine-settle micro-bank; v0.67:<br/>turn demand RAMPS in over [0.5°,2°] (no gate-exit step)<br/>v0.67: down-hemisphere roll-to-align suppressed →<br/>bounded pushover closes below-targets (no 90° hang)<br/>v0.69 WT-feel: pitch P floored by a RATE-NORMALIZED term<br/>(NoseResponse·err / probed stick gain) + aim-rate<br/>feedforward; bank-target slew boosted while steering<br/>v0.70: yaw rate damping tracks the configured yaw gain<br/>(YawLeadTime) so raising gains cannot un-damp the nose"]
     end
 
     subgraph COND["5 · CONDITION"]
@@ -486,6 +486,8 @@ Verify against the decompiled source before changing any of these.
 | `azErr` | positive = marker right of heading |
 | `t.right.y` | negative = right wing down |
 | FBW pitch/yaw | a commanded **angular rate**, not a deflection |
+| FBW yaw (decompiled 0.34) | stick is a yaw-rate target in **rad/s**; rudder = `clamp(yawTightness·remapFactor·(stick − yawRate) + yawWeathervaning·sideslip)`, `remapFactor = 1/max(1, qRatio)` |
+| FBW roll (decompiled 0.34) | rate target `stick·maxRollAngularVel·clamp(qRatio/maxRollSpeed, 0.5, 1)` tracked by `rollTightness`, blended toward direct stick as `remapFactor` falls (high q) |
 
 ---
 

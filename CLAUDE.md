@@ -61,7 +61,10 @@ Machine-specific paths are written as placeholders:
     (`Cfg` section `Feel`): `omegaStick` (the probed FBW stick→pitch-rate gain, pre-AoA-cap) normalizes
     a constant-bandwidth pitch floor (`NoseResponse`) and a marker-pitch-rate feedforward
     (`AimFeedForward`); `_aimActive` (marker-motion envelope) boosts the bank-target slew while the
-    pilot is steering (`ActiveBankSlewBoost`). Each knob has an exact-v0.68 "off" value. Also holds
+    pilot is steering (`ActiveBankSlewBoost`). Each knob has an exact-v0.68 "off" value. **v0.70**
+    `YawLeadTime` keeps total yaw-rate feedback >= lead time x the configured yaw error gain (the game
+    FBW's yaw stick is a rad/s rate target with one unit of built-in rate feedback), so over-gaining
+    yaw no longer strips its damping. Also holds
     `PilotPlayerStatePatch` (Harmony seam on `PilotPlayerState.PlayerAxisControls`).
   - `Recording.cs` — `ManeuverRecorder` + `AnomalyLog` (the log/recorder sinks ChaseController emits to).
   - `CameraPatches.cs` — `CockpitCameraPatch` + `CameraOrbitPatch` + `CameraSwitchStatePatch`.

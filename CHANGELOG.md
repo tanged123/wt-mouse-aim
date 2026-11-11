@@ -3,6 +3,26 @@
 All notable changes to WT Mouse Aim. Versions are the `PluginVersion` in `WTMouseAimPlugin.cs`
 (the single source of truth); each release is published via `release.ps1`.
 
+## 0.70.0
+
+Yaw wobble when the yaw gains are turned up.
+
+Decompiling `ControlsFilter.FlyByWire.Filter` (game 0.34) shows the yaw stick is a yaw-**rate** target in
+rad/s and the rudder is `clamp(yawTightness·remapFactor·(stick − yawRate) + yawWeathervaning·sideslip)`.
+So the game supplies one unit of rate feedback, `ChaseDamping` adds a fixed 0.25, and the error gain
+`sens·fineGain·yawScale·YawGain` is free to grow: on defaults the damping-to-gain ratio is ~0.12 s, at
+2× sensitivity and 2× `YawGain` it is ~0.04 s and the nose wags.
+
+- **`Feel/YawLeadTime` (default 0.12 s)** — extra yaw-rate damping is added whenever the configured gains
+  would drop the ratio below this. Adds nothing on default gains (stock unchanged); `0` = off.
+- Since v0.69 pitch no longer depends on `PitchYawSensitivity` for its mid-band response
+  (`NoseResponse` does that), so the sensitivity/`YawGain` increases people used to wake pitch up can be
+  backed off — which is the other half of the cure.
+
+Flight tests: with your raised gains, level at 200–350 m/s, flick the marker 5–10° sideways and stop —
+pass = nose settles in one swing, fail = two or more side-to-side wags (raise `YawLeadTime`). Then the
+same at default gains to confirm nothing changed. Low-speed takeoff roll: no new rudder buzz.
+
 ## 0.69.1
 
 Compatibility fix, no control-law change. **ArcadeCam third-person aiming was dead on 0.69.0**: its

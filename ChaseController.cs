@@ -1553,7 +1553,31 @@ namespace NuclearOptionMouseAim
             float yErrTerm = (_collective && _heloOk)
                 ? Mathf.Clamp(kHelo * Mathf.Asin(Mathf.Clamp(local.x, -1f, 1f)) / wMaxY, -1f, 1f)
                 : local.x * sens * fineGain * yawScale * yawWeakFade;
-            tgtY = Mathf.Clamp((yErrTerm + _iYaw - yawRate * damp) * Cfg.YawGain.Value, -1f, 1f);
+            // WT-FEEL (v0.70) GAIN-TRACKING YAW DAMPING — the over-gained yaw wobble fix. Decompiled
+            // ControlsFilter.FlyByWire.Filter (game 0.34): the yaw stick is a yaw-RATE target in rad/s
+            // (1.0 stick = 1 rad/s), and the rudder is
+            //     clamp( yawTightness * remapFactor * (stick - yawRate) + yawWeathervaning * sideslip )
+            // so the game itself supplies exactly ONE unit of rate feedback per unit of stick gain, and
+            // the mod's ChaseDamping adds a fixed 0.25 on top. The error gain, though, is
+            // K = sens * fineGain * yawScale * YawGain (rad/s of commanded yaw per rad of error): 10.5 at
+            // boresight on defaults, and it scales straight up with PitchYawSensitivity / YawGain while
+            // the damping does not. The weathervane (nose-vs-velocity) mode's damping ratio therefore
+            // falls as the pilot raises either knob — at 2x sens and 2x YawGain the lead time D/K drops
+            // from ~0.12 s to ~0.04 s and the nose wags. Hold the LEAD TIME instead: total rate
+            // feedback is kept >= YawLeadTime * K, so turning the gain up makes yaw stiffer without
+            // making it less damped. On default gains the requirement (0.12 * 10.5 = 1.26) is met by
+            // what is already there (1 + 0.25), so stock behaviour is unchanged; it only ever ADDS
+            // damping. Pure function of the configured gains + the game's own law — no per-plane
+            // constant. Fixed-wing direct-yaw path only (the helo branch is already rate-normalized).
+            float yawDampExtra = 0f;
+            float yawGainAbs = Mathf.Abs(Cfg.YawGain.Value);
+            if (!(_collective && _heloOk) && Cfg.YawLeadTime.Value > 0f)
+            {
+                float kYaw = sens * fineGain * yawScale * yawWeakFade * yawGainAbs;
+                yawDampExtra = Mathf.Max(0f, Cfg.YawLeadTime.Value * kYaw - (1f + damp * yawGainAbs));
+            }
+            tgtY = Mathf.Clamp((yErrTerm + _iYaw - yawRate * damp) * Cfg.YawGain.Value
+                               - Mathf.Sign(Cfg.YawGain.Value) * yawRate * yawDampExtra, -1f, 1f);
 
             // ROLL — same eFine/eAlign structure as Legacy, with two changes:
             //   2a: use tBankE (universal speed-aware bank) instead of passed-in targetBank for eFine.

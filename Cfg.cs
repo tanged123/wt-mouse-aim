@@ -91,6 +91,7 @@ namespace NuclearOptionMouseAim
         public static ConfigEntry<float> NoseResponse;        // 1/s: rate-normalized pitch bandwidth floor (0 = off)
         public static ConfigEntry<float> AimFeedForward;      // 0..1.5: fraction of the marker's pitch rate fed forward (0 = off)
         public static ConfigEntry<float> ActiveBankSlewBoost; // x: bank-target slew multiplier while the marker is being moved (1 = off)
+        public static ConfigEntry<float> YawLeadTime;         // s: minimum yaw damping-to-gain ratio (0 = off)
 
         // --- Shared bank-target airspeed floor (v0.60, was BankToTurnVmin): the V floor in the
         // atan(omega*V/g) bank math, used at both lockstep sites (Apply's shared bankTR and
@@ -309,6 +310,9 @@ namespace NuclearOptionMouseAim
             ActiveBankSlewBoost = cf.Bind("Feel", "ActiveBankSlewBoost", 3.0f, new ConfigDescription(
                 "Faster roll-in while you are actively steering. BankSlewRate caps how quickly the commanded bank may change (the cure for wings rocking while holding a still aim point), but it also makes every turn entry take over a second to reach its bank. While the aim circle is being moved, the cap is multiplied by this; it eases back to the plain BankSlewRate about 0.7 s after the mouse stops, so station-keeping is unchanged. 1 = off (exact v0.68). ~3 reaches a full bank in roughly 0.4 s. Lower it if turn entries over-bank or rock; raise it if rolls still feel lazy.",
                 new AcceptableValueRange<float>(1f, 6f)));
+            YawLeadTime         = cf.Bind("Feel", "YawLeadTime", 0.12f, new ConfigDescription(
+                "Keeps yaw damped when you turn the yaw gains up. Raising PitchYawSensitivity or YawGain makes the rudder pull harder toward the aim circle, but the damping that stops the nose wagging did not grow with it, so high gains wobbled. This sets a minimum ratio of damping to gain, in seconds: extra yaw-rate damping is added automatically whenever the configured gains would fall below it. On default gains it adds nothing, so stock feel is unchanged. 0 = off (exact v0.69). Raise toward 0.2 if the nose still wags side to side; lower toward 0.08 if yaw feels sticky or slow to settle.",
+                new AcceptableValueRange<float>(0f, 0.4f)));
             BankSpeedFloor      = cf.Bind("Control", "BankSpeedFloor", 50f, new ConfigDescription(
                 "Airspeed FLOOR (m/s) used inside the speed-correct bank physics phi=atan(omega*V/g) at both lockstep sites (Apply's shared bank target and the EvolvedLegacy law). The bank is sized in proportion to airspeed V; at very low speed / hover V->0 would collapse the commanded bank to nothing, so V is floored here to keep the maths sane (a gentle, sensible bank rather than zero). Has no effect above this speed. ~50 m/s is a safe floor; raise it if low-speed turns feel too weak, lower it toward true stall speed for more honest slow-flight banking. (v0.60: renamed from BankToTurnVmin — an old cfg line with that key is ignored and this binds at the identical default 50, so behaviour is unchanged.)",
                 new AcceptableValueRange<float>(10f, 150f)));
@@ -421,7 +425,7 @@ namespace NuclearOptionMouseAim
                 $"coordPull={CoordPullGain.Value:0.00} coordCap={CoordPullCap.Value:0.00} bankAuth={BankAuthGain.Value:0.0} yawFade={YawWeakFade.Value:0.00} " +
                 $"trGain={AssistTurnRateGain.Value:0.00} pullRel={CoordPullReleaseAngle.Value:0.0} alignHold={EvolvedAlignHoldDeg.Value:0.0} " +
                 $"leadT={TurnLeadTime.Value:0.00} bankSlew={BankSlewRate.Value:0} " +
-                $"noseResp={NoseResponse.Value:0.0} aimFF={AimFeedForward.Value:0.00} bankSlewBoost={ActiveBankSlewBoost.Value:0.0} " +
+                $"noseResp={NoseResponse.Value:0.0} aimFF={AimFeedForward.Value:0.00} bankSlewBoost={ActiveBankSlewBoost.Value:0.0} yawLead={YawLeadTime.Value:0.00} " +
                 $"heliFwd={HeliForwardSpeed.Value:0} heliHover={HeliHoverSpeed.Value:0} heliYawSc={HeliYawScale.Value:0.00}";
         }
 
